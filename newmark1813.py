@@ -90,6 +90,11 @@ class OMRScanner(QMainWindow):
         self.delete_group_button.clicked.connect(self.delete_group)
         self.status_bar.addPermanentWidget(self.delete_group_button)  # Align to the right
 
+        # Add "Copy Group Style" button to the status bar
+        self.copy_group_style_button = QPushButton("Copy Group Style")
+        self.copy_group_style_button.clicked.connect(self.copy_group_style)
+        self.status_bar.addPermanentWidget(self.copy_group_style_button)  # Align to the right
+
         # Scroll area for the image
         self.scroll_area = QScrollArea(self)
         self.image_label = QLabel(self)
@@ -444,6 +449,64 @@ class OMRScanner(QMainWindow):
                 self.coord_table.setItem(row, 0, QTableWidgetItem(str(question)))  # Question
                 self.coord_table.setItem(row, 1, QTableWidgetItem(options))       # Options
                 self.coord_table.setItem(row, 2, QTableWidgetItem(coordinates))   # Coordinates
+
+    def copy_group_style(self):
+        """Copy the style of an existing group and create a new group at a specified origin."""
+        if not self.groups:
+            QMessageBox.warning(self, "No Groups", "No groups have been created yet.")
+            return
+
+        # Prompt the user to select a group to copy
+        group_names = list(self.groups.keys())
+        selected_group, ok = QInputDialog.getItem(self, "Select Group", "Select a group to copy:", group_names, 0, False)
+        if not ok or not selected_group:
+            return
+
+        # Get the pattern of the selected group
+        selected_group_coords = self.groups[selected_group]
+        if not selected_group_coords:
+            QMessageBox.warning(self, "Empty Group", "The selected group has no coordinates.")
+            return
+
+        # Calculate the spacing and dimensions of the selected group
+        question_numbers = sorted(set(coord[0] for coord in selected_group_coords))
+        num_questions = len(question_numbers)
+        num_options = len([coord for coord in selected_group_coords if coord[0] == question_numbers[0]])
+
+        # Calculate the spacing between rows and columns
+        x_spacing = selected_group_coords[1][2] - selected_group_coords[0][2] if num_options > 1 else 0
+        y_spacing = selected_group_coords[num_options][3] - selected_group_coords[0][3] if num_questions > 1 else 0
+
+        # Prompt the user to mark the origin coordinate for the new group
+        QMessageBox.information(self, "Mark Origin", "Please mark the origin coordinate for the new group.")
+        self.enable_marker()
+        self.marking_enabled = True
+
+        def on_origin_marked():
+            if self.start_point:
+                x_origin, y_origin = self.start_point
+                self.start_point = None  # Reset the start point
+
+                # Generate the new group's coordinates
+                new_group_name = f"Group {len(self.groups) + 1}"
+                self.groups[new_group_name] = []
+                for q in range(num_questions):
+                    for opt in range(num_options):
+                        x = x_origin + opt * x_spacing
+                        y = y_origin + q * y_spacing
+                        question_number = self.last_question_number + q + 1
+                        self.groups[new_group_name].append((question_number, chr(65 + opt), x, y))
+                        self.coord_display.append(f"Q{question_number}, {chr(65+opt)}: ({x}, {y})")
+                        cv2.circle(self.display_image, (x, y), 5, (0, 0, 255), -1)
+
+                self.last_question_number += num_questions  # Increment question numbers for the next group
+                self.update_display()
+                self.update_coord_table()
+                self.update_group_menu()
+                QMessageBox.information(self, "Group Copied", f"Group '{new_group_name}' created with the same style as '{selected_group}'.")
+
+        # Connect the marker event to the origin marking logic
+        self.image_label.mousePressEvent = lambda event: self.mark_point(event) or on_origin_marked()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
