@@ -95,6 +95,12 @@ class OMRScanner(QMainWindow):
         self.copy_group_style_button.clicked.connect(self.copy_group_style)
         self.status_bar.addPermanentWidget(self.copy_group_style_button)  # Align to the right
 
+        # Add "Disable Copy Group Style" button to the status bar
+        self.disable_copy_group_style_button = QPushButton("Disable Copy Group Style")
+        self.disable_copy_group_style_button.clicked.connect(self.disable_copy_group_style)
+        self.disable_copy_group_style_button.setEnabled(False)  # Initially disabled
+        self.status_bar.addPermanentWidget(self.disable_copy_group_style_button)  # Align to the right
+
         # Scroll area for the image
         self.scroll_area = QScrollArea(self)
         self.image_label = QLabel(self)
@@ -157,6 +163,7 @@ class OMRScanner(QMainWindow):
         self.end_point = None
         self.coordinates = []
         self.coord_display.clear()
+        self.image_label.setCursor(Qt.CrossCursor)  # Change cursor to a plus symbol
         print("Marker enabled: Click two points on the image.")
 
     def disable_marker(self):
@@ -188,6 +195,17 @@ class OMRScanner(QMainWindow):
 
                 # Ensure the coordinates are within the bounds of the original image
                 if 0 <= x < self.image.shape[1] and 0 <= y < self.image.shape[0]:
+                    # Detect the nearest circle and reposition to its center
+                    gray = cv2.cvtColor(self.display_image, cv2.COLOR_BGR2GRAY)
+                    circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, dp=1, minDist=20, param1=50, param2=30, minRadius=5, maxRadius=10)
+                    if circles is not None:
+                        circles = np.uint16(np.around(circles))
+                        for circle in circles[0, :]:
+                            cx, cy, radius = circle
+                            if abs(cx - x) <= radius and abs(cy - y) <= radius:
+                                x, y = cx, cy  # Reposition to the center of the circle
+                                break
+
                     self.coord_display.append(f"Marked: ({x}, {y})")
                     self.draw_marker(x, y)
 
@@ -481,6 +499,7 @@ class OMRScanner(QMainWindow):
         QMessageBox.information(self, "Mark Origin", "Please mark the origin coordinate for the new group.")
         self.enable_marker()
         self.marking_enabled = True
+        self.disable_copy_group_style_button.setEnabled(True)  # Enable the disable button
 
         def on_origin_marked():
             if self.start_point:
@@ -504,9 +523,17 @@ class OMRScanner(QMainWindow):
                 self.update_coord_table()
                 self.update_group_menu()
                 QMessageBox.information(self, "Group Copied", f"Group '{new_group_name}' created with the same style as '{selected_group}'.")
+                self.disable_copy_group_style()  # Exit copy group style mode
 
         # Connect the marker event to the origin marking logic
         self.image_label.mousePressEvent = lambda event: self.mark_point(event) or on_origin_marked()
+
+    def disable_copy_group_style(self):
+        """Disable the copy group style mode."""
+        self.marking_enabled = False
+        self.disable_copy_group_style_button.setEnabled(False)  # Disable the button
+        self.image_label.mousePressEvent = self.mark_point  # Reset the mouse press event
+        QMessageBox.information(self, "Copy Group Style Disabled", "You have exited the copy group style mode.")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
